@@ -135,7 +135,7 @@ struct Matrix:
 
 fn read_val_int(inout buf: FileBuf) -> Int:
     # DTypePointer[DType.ui8](buf.data).bitcast[DType.ui8]()
-    let data = buf.data.offset(buf.offset).bitcast[DType.uint32]()
+    let data = buf.data.offset(buf.offset).bitcast[DType.int32]()
     let result = data.load(0)
     buf.offset += 4
     return result.to_int()
@@ -158,16 +158,17 @@ fn read_val_str(inout buf: FileBuf, slen: Int) -> PointerString:
     return str
 
 
+fn str_len(s: PointerString) -> Int:
+    var len = 0
+    while s[len] != 0:
+        len += 1
+    return len
+
+
 # not optimal concat
 fn str_concat(s1: PointerString, s2: PointerString) -> PointerString:
-    var l1 = 0
-    var l2 = 0
-
-    while s1[l1] != 0:
-        l1 += 1
-    while s2[l2] != 0:
-        l2 += 1
-
+    let l1 = str_len(s1)
+    let l2 = str_len(s2)
     let str = PointerString.alloc(l1 + l2 + 1)
     memcpy[UInt8](str, s1, l1)
     memcpy[UInt8](str.offset(l1), s2, l2)
@@ -181,63 +182,6 @@ fn str_to_ptr(s: String) -> PointerString:
         ret.store(i, ord(s[i]))
     ret.store(len(s), 0)
     return ret
-
-
-fn string_compare(a: PointerString, b: PointerString) -> Int:
-    var index = 0
-    while a[index] != 0 and b[index] != 0:
-        if a[index] < b[index]:
-            return -1
-        if a[index] > b[index]:
-            return 1
-
-        index += 1
-
-    if a[index] != 0 and b[index] == 0:
-        return 1
-
-    if a[index] == 0 and b[index] != 0:
-        return -1
-
-    return 0
-
-
-# Quicksort helper function to find the partition position
-fn partition(
-    inout array: PointerStrings, inout indices: DynamicVector[Int], low: Int, high: Int
-) -> Int:
-    let pivot = array[high]
-    var ii = low - 1
-    for jj in range(low, high):
-        if string_compare(pivot, array[jj]) == 1:
-            # If element smaller than pivot, swap
-            ii = ii + 1
-
-            let tmp = array[ii]
-            let tmp_idx = indices[ii]
-            array.store(ii, array[jj])
-            indices[ii] = indices[jj]
-            array.store(jj, tmp)
-            indices[jj] = tmp_idx
-
-    # Swap the pivot element
-    let tmp = array[ii + 1]
-    let tmp_idx = indices[ii + 1]
-    array.store(ii + 1, array[high])
-    indices[ii + 1] = indices[high]
-    array.store(high, tmp)
-    indices[high] = tmp_idx
-
-    return ii + 1
-
-
-fn quicksort(
-    inout array: PointerStrings, inout indices: DynamicVector[Int], low: Int, high: Int
-):
-    if low < high:
-        let pi = partition(array, indices, low, high)
-        quicksort(array, indices, low, pi - 1)
-        quicksort(array, indices, pi + 1, high)
 
 
 struct FileBuf:
@@ -264,56 +208,12 @@ struct Tokenizer:
     var vocab_scores: BufferPtrFloat32
     var max_token_length: Int
     var vocab_size: Int
-    var sorted_vocab: PointerStrings
-    var sorted_indices: DynamicVector[Int]
 
-    fn __init__(inout self, vocab_size: Int, inout buf: FileBuf) -> None:
+    fn __init__(inout self, vocab_size: Int):
         self.vocab_size = vocab_size
-        self.max_token_length = read_val_int(buf)
-        self.vocab_scores = BufferPtrFloat32.alloc(self.vocab_size)
-        self.vocab = PointerStrings.alloc(self.vocab_size)
-        # lazy load sorted vocab
-        self.sorted_vocab = PointerStrings.alloc(0)
-        self.sorted_indices = DynamicVector[Int](0)
-
-        # read vocab_scores & vocab values (tokens)
-        for i in range(0, self.vocab_size):
-            self.vocab_scores.store(i, read_val_float32(buf))
-            let slen = read_val_int(buf)
-            self.vocab.store(i, read_val_str(buf, slen))
-
-        return None
-
-    # sort vocab by string_compare
-    fn sort(inout self) -> None:
-        if len(self.sorted_indices) < self.vocab_size:
-            self.sorted_indices = DynamicVector[Int](self.vocab_size)
-            self.sorted_vocab = PointerStrings.alloc(self.vocab_size)
-            for ii in range(self.vocab_size):
-                self.sorted_vocab.store(ii, self.vocab[ii])
-                self.sorted_indices.push_back(ii)
-
-        let n = self.vocab_size
-        quicksort(self.sorted_vocab, self.sorted_indices, 0, n - 1)
-        return None
-
-    # Binary search that returns -1 if string is not found
-    fn find(inout self, token: PointerString) -> Int:
-        let n = self.vocab_size
-        if len(self.sorted_indices) < n:
-            self.sort()
-        var left = 0
-        var right = n - 1
-        while left <= right:
-            let mid = left + (right - left) // 2
-            let comparison = string_compare(self.sorted_vocab[mid], token)
-            if comparison == 0:
-                return self.sorted_indices[mid]
-            if comparison < 0:
-                left = mid + 1
-            else:
-                right = mid - 1
-        return -1
+        self.vocab = PointerStrings.alloc(vocab_size)
+        self.vocab_scores = BufferPtrFloat32.alloc(vocab_size)
+        self.max_token_length = 0
 
 
 struct Config:
@@ -430,18 +330,21 @@ struct TransformerWeights:
         self.rms_final_weight.set_buf_ptr(
             buf.bitcast_offset_float32(self.rms_final_weight.size())
         )
-        self.freq_cis_real = Matrix(config.seq_len, (config.dim // config.n_heads) // 2)
+        # maybe need modifying for different model
+        # config.head_size // 2 for stories and tinyllama-1.1
+        self.freq_cis_real = Matrix(config.seq_len, config.head_size // 2)
         self.freq_cis_real.set_buf_ptr(
             buf.bitcast_offset_float32(self.freq_cis_real.size())
         )
-        self.freq_cis_imag = Matrix(config.seq_len, (config.dim // config.n_heads) // 2)
+        self.freq_cis_imag = Matrix(config.seq_len, config.head_size // 2)
         self.freq_cis_imag.set_buf_ptr(
             buf.bitcast_offset_float32(self.freq_cis_imag.size())
         )
-        self.wcls = Matrix(
-            config.vocab_size, config.dim
-        )  # if shared_weights else rest_floats
-        self.wcls.set_buf_ptr(self.token_embedding_table.data)
+        self.wcls = Matrix(config.vocab_size, config.dim)
+        if shared_weights:
+            self.wcls.set_buf_ptr(self.token_embedding_table.data)
+        else:
+            self.wcls.set_buf_ptr(buf.bitcast_offset_float32(self.wcls.size()))
 
 
 fn read_file(file_name: String, inout buf: FileBuf) raises:
@@ -470,6 +373,7 @@ fn config_init(inout config: Config, inout buf: FileBuf) raises:
     config.dim = read_val_int(buf)
     config.hidden_dim = read_val_int(buf)
     config.n_layers = read_val_int(buf)
+    print("n layers: ", config.n_layers)
     config.n_heads = read_val_int(buf)
     config.n_kv_heads = read_val_int(buf)
     config.vocab_size = read_val_int(buf)
@@ -477,6 +381,21 @@ fn config_init(inout config: Config, inout buf: FileBuf) raises:
     config.head_size = config.dim // config.n_heads
     config.kv_dim = (config.n_kv_heads * config.dim) // config.n_heads
     config.kv_mul = config.n_heads // config.n_kv_heads
+    return None
+
+
+fn tokenizer_init(inout tok: Tokenizer, inout buf: FileBuf) -> None:
+    tok.max_token_length = read_val_int(buf)
+    tok.vocab_scores = BufferPtrFloat32.alloc(tok.vocab_size)
+    tok.vocab = PointerStrings.alloc(tok.vocab_size)
+
+    # read vocab_scores & vocab values (tokens)
+    for i in range(0, tok.vocab_size):
+        tok.vocab_scores.store(i, read_val_float32(buf))
+        let slen = read_val_int(buf)
+        tok.vocab.store(i, read_val_str(buf, slen))
+    tok.vocab_scores = buf.data.offset(buf.offset).bitcast[DType.float32]()
+    buf.offset += tok.vocab_size * 4
     return None
 
 
@@ -587,7 +506,6 @@ fn transformer(
 
     # tmp matrix for matmul operations
     var tmpw = Matrix(0, 0)
-
     # Copy the token embedding into x
     let content_row = weights.token_embedding_table.data.offset(token * dim)
     memcpy[DType.float32](x, content_row, config.dim)
@@ -600,11 +518,8 @@ fn transformer(
     for l in range(config.n_layers):
         # Attention rmsnorm
         rmsnorm(state.xb.data, x, weights.rms_att_weight.data.offset(l * dim), dim)
-
-        # QKV matmuls for this position
         tmpw.set_buf_ptr(weights.wq.data.offset(l * dim * dim), dim, dim)
         matmul(state.q, state.xb, tmpw, state.rt)
-
         let loff = l * config.seq_len * kv_dim
         state.k.set_buf_ptr(state.key_cache.data.offset(loff + pos * kv_dim), 1, kv_dim)
         tmpw.set_buf_ptr(weights.wk.data.offset(l * dim * kv_dim), kv_dim, dim)
@@ -619,27 +534,42 @@ fn transformer(
         # Apply RoPE rotation to the q and k vectors for each head
         let q = state.q.data
         let k = state.k.data
-        for i in range(0, head_size * config.n_kv_heads, 2):
-            let head_dim_half = i % head_size // 2
-            let fcr = freq_cis_real_row.offset(head_dim_half).load(0)
-            let fci = freq_cis_imag_row.offset(head_dim_half).load(0)
-            let q0 = q.offset(i).load(0)
-            let q1 = q.offset(i + 1).load(0)
-            let k0 = k.offset(i).load(0)
-            let k1 = k.offset(i + 1).load(0)
-            q.offset(i).store(0, q0 * fcr - q1 * fci)
-            q.offset(i + 1).store(0, q0 * fci + q1 * fcr)
-            k.offset(i).store(0, k0 * fcr - k1 * fci)
-            k.offset(i + 1).store(0, k0 * fci + k1 * fcr)
 
-        for i in range(head_size * config.n_kv_heads, dim, 2):
-            let head_dim_half = i % head_size // 2
-            let fcr = freq_cis_real_row.offset(head_dim_half).load(0)
-            let fci = freq_cis_imag_row.offset(head_dim_half).load(0)
-            let q0 = q.offset(i).load(0)
-            let q1 = q.offset(i + 1).load(0)
-            q.offset(i).store(0, q0 * fcr - q1 * fci)
-            q.offset(i + 1).store(0, q0 * fci + q1 * fcr)
+        # a dirty method to check whether the model is tinyllama-1.1B
+        if config.n_layers == 22:
+            let off_rot = head_size // 2  # tinyllama-1.1, llama model
+            for i in range(config.n_heads):
+                for j in range(config.head_size // 2):
+                    let fcr = freq_cis_real_row.offset(j).load(0)
+                    let fci = freq_cis_imag_row.offset(j).load(0)
+                    let q0 = q.offset(i * head_size + j).load(0)
+                    let q1 = q.offset(i * head_size + j + off_rot).load(0)
+                    q.offset(i * head_size + j).store(0, q0 * fcr - q1 * fci)
+                    q.offset(i * head_size + j + off_rot).store(0, q0 * fci + q1 * fcr)
+                    if i < config.n_kv_heads:
+                        let k0 = k.offset(i * head_size + j).load(0)
+                        let k1 = k.offset(i * head_size + j + off_rot).load(0)
+                        k.offset(i * head_size + j).store(0, k0 * fcr - k1 * fci)
+                        k.offset(i * head_size + j + off_rot).store(
+                            0, k0 * fci + k1 * fcr
+                        )
+        else:
+            let off_rot = 1  # stories model
+            for i in range(config.n_heads):
+                for j in range(0, config.head_size, 2):
+                    let fcr = freq_cis_real_row.offset(j // 2).load(0)
+                    let fci = freq_cis_imag_row.offset(j // 2).load(0)
+                    let q0 = q.offset(i * head_size + j).load(0)
+                    let q1 = q.offset(i * head_size + j + off_rot).load(0)
+                    q.offset(i * head_size + j).store(0, q0 * fcr - q1 * fci)
+                    q.offset(i * head_size + j + off_rot).store(0, q0 * fci + q1 * fcr)
+                    if i < config.n_kv_heads:
+                        let k0 = k.offset(i * head_size + j).load(0)
+                        let k1 = k.offset(i * head_size + j + off_rot).load(0)
+                        k.offset(i * head_size + j).store(0, k0 * fcr - k1 * fci)
+                        k.offset(i * head_size + j + off_rot).store(
+                            0, k0 * fci + k1 * fcr
+                        )
 
         # Multihead attention. Iterate over all heads
         for h in range(config.n_heads):
@@ -747,10 +677,24 @@ fn sample(probabilities: Matrix) -> Int:
     return n - 1  # In case of rounding errors
 
 
-fn bpe_encode(inout tokens: DynamicVector[Int], text: String, inout tok: Tokenizer):
+fn str_lookup(str: PointerString, tok: Tokenizer) -> Int:
+    for pos in range(tok.vocab_size):
+        let s1 = tok.vocab[pos]
+        var p1 = 0
+        while s1[p1] != 0 and str[p1] != 0:
+            if s1[p1] != str[p1]:
+                break
+            p1 += 1
+        if s1[p1] != 0 or str[p1] != 0:
+            continue
+        return pos
+    return -1
+
+
+fn bpe_encode(inout tokens: DynamicVector[Int], text: String, tok: Tokenizer):
     for pos in range(len(text)):
         let char = str_to_ptr(text[pos])
-        let id = tok.find(char)
+        let id = str_lookup(char, tok)
 
         if id == -1:
             print("Not a good prompt token at pos ", pos)
@@ -765,7 +709,7 @@ fn bpe_encode(inout tokens: DynamicVector[Int], text: String, inout tok: Tokeniz
         for i in range(len(tokens) - 1):
             # Check if we can merge the pair (tokens[i], tokens[i+1])
             let str = str_concat(tok.vocab[tokens[i]], tok.vocab[tokens[i + 1]])
-            let id = tok.find(str)
+            let id = str_lookup(str, tok)
             if id != -1 and tok.vocab_scores.load(id) > best_score:
                 best_score = tok.vocab_scores.load(id)
                 best_id = id
@@ -889,19 +833,20 @@ fn main() raises:
 
     let weights: TransformerWeights = TransformerWeights(config, shared_weights, fbuf)
 
+    var tok: Tokenizer = Tokenizer(config.vocab_size)
+    print('Vocab size', config.vocab_size)
+
     if steps <= 0 or steps > config.seq_len:
         steps = config.seq_len
 
     # Read in the tokenizer.bin file
     read_file(tokenizer, tbuf)
-    var tok = Tokenizer(config.vocab_size, tbuf)
-
+    tokenizer_init(tok, tbuf)
     # Create and initialize the application RunState
     var state = RunState(config)
 
     # Process the prompt, if any
     var prompt_tokens = DynamicVector[Int]()
-
     if prompt:
         bpe_encode(prompt_tokens, prompt, tok)
 
