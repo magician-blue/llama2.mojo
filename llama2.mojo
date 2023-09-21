@@ -135,7 +135,7 @@ struct Matrix:
 
 fn read_val_int(inout buf: FileBuf) -> Int:
     # DTypePointer[DType.ui8](buf.data).bitcast[DType.ui8]()
-    let data = buf.data.offset(buf.offset).bitcast[DType.uint32]()
+    let data = buf.data.offset(buf.offset).bitcast[DType.int32]()
     let result = data.load(0)
     buf.offset += 4
     return result.to_int()
@@ -158,16 +158,17 @@ fn read_val_str(inout buf: FileBuf, slen: Int) -> PointerString:
     return str
 
 
+fn str_len(s: PointerString) -> Int:
+    var len = 0
+    while s[len] != 0:
+        len += 1
+    return len
+
+
 # not optimal concat
 fn str_concat(s1: PointerString, s2: PointerString) -> PointerString:
-    var l1 = 0
-    var l2 = 0
-
-    while s1[l1] != 0:
-        l1 += 1
-    while s2[l2] != 0:
-        l2 += 1
-
+    let l1 = str_len(s1)
+    let l2 = str_len(s2)
     let str = PointerString.alloc(l1 + l2 + 1)
     memcpy[UInt8](str, s1, l1)
     memcpy[UInt8](str.offset(l1), s2, l2)
@@ -181,7 +182,6 @@ fn str_to_ptr(s: String) -> PointerString:
         ret.store(i, ord(s[i]))
     ret.store(len(s), 0)
     return ret
-
 
 fn string_compare(a: PointerString, b: PointerString) -> Int:
     var index = 0
@@ -430,18 +430,21 @@ struct TransformerWeights:
         self.rms_final_weight.set_buf_ptr(
             buf.bitcast_offset_float32(self.rms_final_weight.size())
         )
-        self.freq_cis_real = Matrix(config.seq_len, (config.dim // config.n_heads) // 2)
+        # maybe need modifying for different model
+        # config.head_size // 2 for stories and tinyllama-1.1
+        self.freq_cis_real = Matrix(config.seq_len, config.head_size // 2)
         self.freq_cis_real.set_buf_ptr(
             buf.bitcast_offset_float32(self.freq_cis_real.size())
         )
-        self.freq_cis_imag = Matrix(config.seq_len, (config.dim // config.n_heads) // 2)
+        self.freq_cis_imag = Matrix(config.seq_len, config.head_size // 2)
         self.freq_cis_imag.set_buf_ptr(
             buf.bitcast_offset_float32(self.freq_cis_imag.size())
         )
-        self.wcls = Matrix(
-            config.vocab_size, config.dim
-        )  # if shared_weights else rest_floats
-        self.wcls.set_buf_ptr(self.token_embedding_table.data)
+        self.wcls = Matrix(config.vocab_size, config.dim)
+        if shared_weights:
+            self.wcls.set_buf_ptr(self.token_embedding_table.data)
+        else:
+            self.wcls.set_buf_ptr(buf.bitcast_offset_float32(self.wcls.size()))
 
 
 fn read_file(file_name: String, inout buf: FileBuf) raises:
@@ -470,6 +473,7 @@ fn config_init(inout config: Config, inout buf: FileBuf) raises:
     config.dim = read_val_int(buf)
     config.hidden_dim = read_val_int(buf)
     config.n_layers = read_val_int(buf)
+    print("n layers: ", config.n_layers)
     config.n_heads = read_val_int(buf)
     config.n_kv_heads = read_val_int(buf)
     config.vocab_size = read_val_int(buf)
@@ -619,27 +623,42 @@ fn transformer(
         # Apply RoPE rotation to the q and k vectors for each head
         let q = state.q.data
         let k = state.k.data
-        for i in range(0, head_size * config.n_kv_heads, 2):
-            let head_dim_half = i % head_size // 2
-            let fcr = freq_cis_real_row.offset(head_dim_half).load(0)
-            let fci = freq_cis_imag_row.offset(head_dim_half).load(0)
-            let q0 = q.offset(i).load(0)
-            let q1 = q.offset(i + 1).load(0)
-            let k0 = k.offset(i).load(0)
-            let k1 = k.offset(i + 1).load(0)
-            q.offset(i).store(0, q0 * fcr - q1 * fci)
-            q.offset(i + 1).store(0, q0 * fci + q1 * fcr)
-            k.offset(i).store(0, k0 * fcr - k1 * fci)
-            k.offset(i + 1).store(0, k0 * fci + k1 * fcr)
 
-        for i in range(head_size * config.n_kv_heads, dim, 2):
-            let head_dim_half = i % head_size // 2
-            let fcr = freq_cis_real_row.offset(head_dim_half).load(0)
-            let fci = freq_cis_imag_row.offset(head_dim_half).load(0)
-            let q0 = q.offset(i).load(0)
-            let q1 = q.offset(i + 1).load(0)
-            q.offset(i).store(0, q0 * fcr - q1 * fci)
-            q.offset(i + 1).store(0, q0 * fci + q1 * fcr)
+        # a dirty method to check whether the model is tinyllama-1.1B
+        if config.n_layers == 22:
+            let off_rot = head_size // 2  # tinyllama-1.1, llama model
+            for i in range(config.n_heads):
+                for j in range(config.head_size // 2):
+                    let fcr = freq_cis_real_row.offset(j).load(0)
+                    let fci = freq_cis_imag_row.offset(j).load(0)
+                    let q0 = q.offset(i * head_size + j).load(0)
+                    let q1 = q.offset(i * head_size + j + off_rot).load(0)
+                    q.offset(i * head_size + j).store(0, q0 * fcr - q1 * fci)
+                    q.offset(i * head_size + j + off_rot).store(0, q0 * fci + q1 * fcr)
+                    if i < config.n_kv_heads:
+                        let k0 = k.offset(i * head_size + j).load(0)
+                        let k1 = k.offset(i * head_size + j + off_rot).load(0)
+                        k.offset(i * head_size + j).store(0, k0 * fcr - k1 * fci)
+                        k.offset(i * head_size + j + off_rot).store(
+                            0, k0 * fci + k1 * fcr
+                        )
+        else:
+            let off_rot = 1  # stories model
+            for i in range(config.n_heads):
+                for j in range(0, config.head_size, 2):
+                    let fcr = freq_cis_real_row.offset(j // 2).load(0)
+                    let fci = freq_cis_imag_row.offset(j // 2).load(0)
+                    let q0 = q.offset(i * head_size + j).load(0)
+                    let q1 = q.offset(i * head_size + j + off_rot).load(0)
+                    q.offset(i * head_size + j).store(0, q0 * fcr - q1 * fci)
+                    q.offset(i * head_size + j + off_rot).store(0, q0 * fci + q1 * fcr)
+                    if i < config.n_kv_heads:
+                        let k0 = k.offset(i * head_size + j).load(0)
+                        let k1 = k.offset(i * head_size + j + off_rot).load(0)
+                        k.offset(i * head_size + j).store(0, k0 * fcr - k1 * fci)
+                        k.offset(i * head_size + j + off_rot).store(
+                            0, k0 * fci + k1 * fcr
+                        )
 
         # Multihead attention. Iterate over all heads
         for h in range(config.n_heads):
@@ -895,6 +914,7 @@ fn main() raises:
     # Read in the tokenizer.bin file
     read_file(tokenizer, tbuf)
     var tok = Tokenizer(config.vocab_size, tbuf)
+    print('Vocab size', tok.vocab_size)
 
     # Create and initialize the application RunState
     var state = RunState(config)
