@@ -261,16 +261,13 @@ struct FileBuf:
 fn wrap(token: PointerString) -> PointerString:
     if string_compare(token, str_to_ptr('\\n')) == 0:
         return str_to_ptr('<0x0A>')
-    elif string_compare(token, str_to_ptr('\\t')) == 0:
+    if string_compare(token, str_to_ptr('\\t')) == 0:
         return str_to_ptr('<0x09>')
-    elif string_compare(token, str_to_ptr('\'')) == 0:
+    if string_compare(token, str_to_ptr('\'')) == 0:
         return str_to_ptr('<0x27>')
     elif string_compare(token, str_to_ptr('\"')) == 0:
         return str_to_ptr('<0x22>')
-    elif string_compare(token, str_to_ptr('\\')) == 0:
-        return str_to_ptr('<0x5C>')
-    else:
-        return token
+    return token
 
 struct Tokenizer:
     var vocab: PointerStrings
@@ -779,17 +776,6 @@ fn sample(probabilities: Matrix) -> Int:
             return i
     return n - 1  # In case of rounding errors
 
-fn lazy_encode(inout tokens: DynamicVector[Int], text: String):
-    var id = 0
-    for pos in range(len(text)):
-        let i = ord(text[pos])
-        if i == ord(' '):
-            tokens.push_back(id)
-            id = 0
-        else:
-            id = id * 10 + i - ord('0')
-    tokens.push_back(id)
-
 fn bpe_encode(inout tokens: DynamicVector[Int], text: String, inout tok: Tokenizer):
     for pos in range(len(text)):
         let char = str_to_ptr(text[pos])
@@ -866,6 +852,7 @@ fn print_usage():
     print("  -t <float>  temperature in [0,1.0], default 1.0")
     print("  -n <int>    number of steps to run for, default 256. 0 = max_seq_len")
     print("  -i <string> input prompt")
+    print("  -z          tokenizer path")
 
 
 fn main() raises:
@@ -878,7 +865,6 @@ fn main() raises:
     var prompt = String("")
     var idx = String("")
     var rng_seed: Int = time.now()
-    var flag = False
 
     @parameter
     fn argparse() raises -> Int:
@@ -887,21 +873,16 @@ fn main() raises:
             return 0
         checkpoint = args[1]
         for i in range(2, len(args), 2):
-            if args[i] == "-fl":
-                flag = True
-                print("check mode")
             if args[i] == "-p":
                 print("Option not supported: ", args[i])
             if args[i] == "-n":
                 steps = atol(args[i + 1])
-            if args[i] == "-tk":
+            if args[i] == "-z":
                 tokenizer = args[i + 1]
             if args[i] == "-s":
                 rng_seed = atol(args[i + 1])
             if args[i] == "-i":
                 prompt = args[i + 1]
-            if args[i] == "-id":
-                idx = args[i + 1]
             if args[i] == "-t":
                 let val = args[i + 1]
                 temperature = 0.0
@@ -955,11 +936,6 @@ fn main() raises:
 
     if prompt:
         bpe_encode(prompt_tokens, prompt, tok)
-    if idx:
-        lazy_encode(prompt_tokens, idx)
-    
-    # for i in range(len(prompt_tokens)):
-    #     print(prompt_tokens[i])
 
     # Start the main loop
     var start = 0  # Used to time our code, only initialized after the first iteration
@@ -970,8 +946,6 @@ fn main() raises:
     # Position in the sequence
     var pos = 0
     while pos < steps:
-        if flag:
-            print(token)
         # Forward the transformer to get logits for the next token
         transformer(token, pos, config, state, weights)
 
