@@ -265,6 +265,18 @@ struct FileBuf:
         return ret
 
 
+fn wrap(token: PointerString) -> PointerString:
+    if string_compare(token, str_to_ptr('\\n')) == 0:
+        return str_to_ptr('<0x0A>')
+    if string_compare(token, str_to_ptr('\\t')) == 0:
+        return str_to_ptr('<0x09>')
+    if string_compare(token, str_to_ptr('\'')) == 0:
+        return str_to_ptr('<0x27>')
+    elif string_compare(token, str_to_ptr('\"')) == 0:
+        return str_to_ptr('<0x22>')
+    return token
+
+    
 struct Tokenizer:
     var vocab: PointerStrings
     var vocab_scores: BufferPtrFloat32
