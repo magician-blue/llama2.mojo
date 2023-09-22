@@ -239,6 +239,7 @@ fn quicksort(
         quicksort(array, indices, low, pi - 1)
         quicksort(array, indices, pi + 1, high)
 
+
 struct FileBuf:
     var data: BufferPtrType
     var offset: Int
@@ -282,6 +283,7 @@ struct Tokenizer:
             self.vocab.store(i, read_val_str(buf, slen))
 
         return None
+
     # sort vocab by string_compare
     fn sort(inout self) -> None:
         if len(self.sorted_indices) < self.vocab_size:
@@ -482,21 +484,6 @@ fn config_init(inout config: Config, inout buf: FileBuf) raises:
     return None
 
 
-fn tokenizer_init(inout tok: Tokenizer, inout buf: FileBuf) -> None:
-    tok.max_token_length = read_val_int(buf)
-    tok.vocab_scores = BufferPtrFloat32.alloc(tok.vocab_size)
-    tok.vocab = PointerStrings.alloc(tok.vocab_size)
-
-    # read vocab_scores & vocab values (tokens)
-    for i in range(0, tok.vocab_size):
-        tok.vocab_scores.store(i, read_val_float32(buf))
-        let slen = read_val_int(buf)
-        tok.vocab.store(i, read_val_str(buf, slen))
-    tok.vocab_scores = buf.data.offset(buf.offset).bitcast[DType.float32]()
-    buf.offset += tok.vocab_size * 4
-    return None
-
-
 fn accum(inout a: BufferPtrFloat32, b: BufferPtrFloat32, size: Int) -> None:
     @parameter
     fn _acc[_nelts: Int](j: Int):
@@ -604,6 +591,7 @@ fn transformer(
 
     # tmp matrix for matmul operations
     var tmpw = Matrix(0, 0)
+
     # Copy the token embedding into x
     let content_row = weights.token_embedding_table.data.offset(token * dim)
     memcpy[DType.float32](x, content_row, config.dim)
@@ -616,9 +604,11 @@ fn transformer(
     for l in range(config.n_layers):
         # Attention rmsnorm
         rmsnorm(state.xb.data, x, weights.rms_att_weight.data.offset(l * dim), dim)
+
         # QKV matmuls for this position
         tmpw.set_buf_ptr(weights.wq.data.offset(l * dim * dim), dim, dim)
         matmul(state.q, state.xb, tmpw, state.rt)
+
         let loff = l * config.seq_len * kv_dim
         state.k.set_buf_ptr(state.key_cache.data.offset(loff + pos * kv_dim), 1, kv_dim)
         tmpw.set_buf_ptr(weights.wk.data.offset(l * dim * kv_dim), kv_dim, dim)
@@ -776,14 +766,16 @@ fn sample(probabilities: Matrix) -> Int:
     return n - 1  # In case of rounding errors
 
 
-fn bpe_encode(inout tokens: DynamicVector[Int], text: String, inout tok: Tokenizer):   
+fn bpe_encode(inout tokens: DynamicVector[Int], text: String, inout tok: Tokenizer):
     for pos in range(len(text)):
         let char = str_to_ptr(text[pos])
-            let id = tok.find(char)
+        let id = tok.find(char)
+
         if id == -1:
             print("Not a good prompt token at pos ", pos)
             return
         tokens.push_back(id)
+
     while True:
         var best_score = Float32(-1e10)
         var best_id = -1
@@ -861,6 +853,7 @@ fn main() raises:
     var steps = 256
     var prompt = String("")
     var rng_seed: Int = time.now()
+    var flag = False
 
     @parameter
     fn argparse() raises -> Int:
@@ -869,6 +862,9 @@ fn main() raises:
             return 0
         checkpoint = args[1]
         for i in range(2, len(args), 2):
+            if args[i] == "-fl":
+                flag = True
+                print("check mode")
             if args[i] == "-p":
                 print("Option not supported: ", args[i])
             if args[i] == "-n":
@@ -929,6 +925,7 @@ fn main() raises:
 
     # Process the prompt, if any
     var prompt_tokens = DynamicVector[Int]()
+
     if prompt:
         bpe_encode(prompt_tokens, prompt, tok)
 
@@ -941,6 +938,8 @@ fn main() raises:
     # Position in the sequence
     var pos = 0
     while pos < steps:
+        if flag:
+            print(token)
         # Forward the transformer to get logits for the next token
         transformer(token, pos, config, state, weights)
 
