@@ -135,7 +135,7 @@ struct Matrix:
 
 fn read_val_int(inout buf: FileBuf) raises -> Int:
     # DTypePointer[DType.ui8](buf.data).bitcast[DType.ui8]()
-    let data = buf.data.offset(buf.offset).bitcast[DType.int32]()
+    let data = buf.data.offset(buf.get_offset()).bitcast[DType.int32]()
     let result = data.load(0)
     buf.move_offset(4)
     return result.to_int()
@@ -263,6 +263,13 @@ struct FileBuf:
         let ret = self.data.offset(self.offset).bitcast[DType.float32]()
         self.move_offset(size * sizeof[DType.float32]())
         return ret
+    
+    fn get_offset(self) raises -> Int: 
+        if self.offset > self.size:
+            raise Error("Offset is past the end of the FileBuf")
+        if self.offset < 0:
+            raise Error("Offset is before the beginning of the FileBuf")
+        return self.offset
 
 
 fn wrap(token: PointerString) -> PointerString:
@@ -276,7 +283,7 @@ fn wrap(token: PointerString) -> PointerString:
         return str_to_ptr('<0x22>')
     return token
 
-    
+
 struct Tokenizer:
     var vocab: PointerStrings
     var vocab_scores: BufferPtrFloat32
