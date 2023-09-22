@@ -258,6 +258,19 @@ struct FileBuf:
         self.offset += size * sizeof[DType.float32]()
         return ret
 
+fn wrap(token: PointerString) -> PointerString:
+    if string_compare(token, str_to_ptr('\\n')) == 0:
+        return str_to_ptr('<0x0A>')
+    elif string_compare(token, str_to_ptr('\\t')) == 0:
+        return str_to_ptr('<0x09>')
+    elif string_compare(token, str_to_ptr('\'')) == 0:
+        return str_to_ptr('<0x27>')
+    elif string_compare(token, str_to_ptr('\"')) == 0:
+        return str_to_ptr('<0x22>')
+    elif string_compare(token, str_to_ptr('\\')) == 0:
+        return str_to_ptr('<0x5C>')
+    else:
+        return token
 
 struct Tokenizer:
     var vocab: PointerStrings
@@ -298,7 +311,8 @@ struct Tokenizer:
         return None
 
     # Binary search that returns -1 if string is not found
-    fn find(inout self, token: PointerString) -> Int:
+    fn find(inout self, token_o: PointerString) -> Int:
+        let token = wrap(token_o)
         let n = self.vocab_size
         if len(self.sorted_indices) < n:
             self.sort()
