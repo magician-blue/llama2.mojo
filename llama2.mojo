@@ -939,14 +939,13 @@ fn main() raises:
     # Process the prompt, if any
     var prompt_tokens = DynamicVector[Int]()
 
-    print(idx)
     if prompt:
         bpe_encode(prompt_tokens, prompt, tok)
     if idx:
         lazy_encode(prompt_tokens, idx)
     
-    for i in range(len(prompt_tokens)):
-        print(prompt_tokens[i])
+    # for i in range(len(prompt_tokens)):
+    #     print(prompt_tokens[i])
 
     # Start the main loop
     var start = 0  # Used to time our code, only initialized after the first iteration
