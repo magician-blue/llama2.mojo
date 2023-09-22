@@ -3,9 +3,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-
+from transformers import AutoTokenizer
+# tokenizer = AutoTokenizer.from_pretrained("PY007/TinyLlama-1.1B-intermediate-step-240k-503B")
+tokenizer = AutoTokenizer.from_pretrained("PY007/TinyLlama-1.1B-Chat-v0.2")
 async def generate(prompt, model_name, seed=0, temperature=0.5, num_tokens=256):
     # stream stout
+    prompt = f"<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
+    out = tokenizer.encode(prompt)[1:]
+    out_str = ' '.join(map(str, out))
     process = subprocess.Popen(
         [
             "mojo",
@@ -17,8 +22,10 @@ async def generate(prompt, model_name, seed=0, temperature=0.5, num_tokens=256):
             str(num_tokens),
             "-t",
             str(temperature),
-            "-i",
-            prompt,
+            "-id",
+            out_str,
+            "-tk",
+            "../llama2.c/tok_tl-chat.bin"
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -56,8 +63,8 @@ Source: https://github.com/tairov/llama2.mojo
                 minimum=1, maximum=256, value=256, label="Number of tokens"
             )
             model_name = gr.Dropdown(
-                ["stories15M.bin", "stories42M.bin", "stories110M.bin"],
-                value="stories15M.bin",
+                ["stories15M.bin", "stories42M.bin", "stories110M.bin", "../llama2.c/tl-chat.bin", "../llama2.c/tl.bin"],
+                value="../llama2.c/tl-chat.bin",
                 label="Model Size",
             )
             with gr.Row():

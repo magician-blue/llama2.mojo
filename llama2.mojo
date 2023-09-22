@@ -765,6 +765,16 @@ fn sample(probabilities: Matrix) -> Int:
             return i
     return n - 1  # In case of rounding errors
 
+fn lazy_encode(inout tokens: DynamicVector[Int], text: String):
+    var id = 0
+    for pos in range(len(text)):
+        let i = ord(text[pos])
+        if i == ord(' '):
+            tokens.push_back(id)
+            id = 0
+        else:
+            id = id * 10 + i - ord('0')
+    tokens.push_back(id)
 
 fn bpe_encode(inout tokens: DynamicVector[Int], text: String, inout tok: Tokenizer):
     for pos in range(len(text)):
@@ -852,6 +862,7 @@ fn main() raises:
     var temperature = 0.9
     var steps = 256
     var prompt = String("")
+    var idx = String("")
     var rng_seed: Int = time.now()
     var flag = False
 
@@ -875,6 +886,8 @@ fn main() raises:
                 rng_seed = atol(args[i + 1])
             if args[i] == "-i":
                 prompt = args[i + 1]
+            if args[i] == "-id":
+                idx = args[i + 1]
             if args[i] == "-t":
                 let val = args[i + 1]
                 temperature = 0.0
@@ -926,8 +939,14 @@ fn main() raises:
     # Process the prompt, if any
     var prompt_tokens = DynamicVector[Int]()
 
+    print(idx)
     if prompt:
         bpe_encode(prompt_tokens, prompt, tok)
+    if idx:
+        lazy_encode(prompt_tokens, idx)
+    
+    for i in range(len(prompt_tokens)):
+        print(prompt_tokens[i])
 
     # Start the main loop
     var start = 0  # Used to time our code, only initialized after the first iteration
