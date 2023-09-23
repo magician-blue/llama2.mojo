@@ -354,6 +354,7 @@ struct Config:
     var vocab_size: Int
     var seq_len: Int
     var head_size: Int
+    var arc: Int # the architecture of the model, noral model is 1, stories model is 0
 
     fn __init__(inout self):
         self.dim = 0
@@ -366,6 +367,7 @@ struct Config:
         self.kv_dim = 0
         self.kv_mul = 0
         self.head_size = 0
+        self.arc = 1
 
 
 struct RunState:
@@ -651,7 +653,7 @@ fn transformer(
         let k = state.k.data
 
         # a dirty method to check whether the model is tinyllama-1.1B
-        if config.n_layers == 22:
+        if config.arc == 1:
             let off_rot = head_size // 2  # tinyllama-1.1, llama model
             for i in range(config.n_heads):
                 for j in range(config.head_size // 2):
@@ -922,6 +924,12 @@ fn main() raises:
     var fbuf: FileBuf = FileBuf()
     var tbuf: FileBuf = FileBuf()
     var config: Config = Config()
+
+    if StringRef("stories15M.bin") == checkpoint or
+        StringRef("stories110M.bin") == checkpoint or
+        StringRef("stories42M.bin") == checkpoint or
+        StringRef("stories260K.bin") == checkpoint:
+        config.arc = 0
 
     read_file(checkpoint, fbuf)
     print("checkpoint size: ", fbuf.size, "[", fbuf.size // 1024 // 1024, "MB ]")
