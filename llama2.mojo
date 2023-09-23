@@ -184,6 +184,7 @@ fn str_to_ptr(s: String) -> PointerString:
     ret.store(len(s), 0)
     return ret
 
+
 fn string_compare(a: PointerString, b: PointerString) -> Int:
     var index = 0
     while a[index] != 0 and b[index] != 0:
@@ -263,7 +264,7 @@ struct FileBuf:
         let ret = self.data.offset(self.offset).bitcast[DType.float32]()
         self.move_offset(size * sizeof[DType.float32]())
         return ret
-    
+
     fn get_offset(self) raises -> Int: 
         if self.offset > self.size:
             raise Error("Offset is past the end of the FileBuf")
@@ -791,6 +792,7 @@ fn sample(probabilities: Matrix) -> Int:
             return i
     return n - 1  # In case of rounding errors
 
+
 fn bpe_encode(inout tokens: DynamicVector[Int], text: String, inout tok: Tokenizer):
     for pos in range(len(text)):
         let char = str_to_ptr(text[pos])
@@ -878,7 +880,6 @@ fn main() raises:
     var temperature = 0.9
     var steps = 256
     var prompt = String("")
-    var idx = String("")
     var rng_seed: Int = time.now()
 
     @parameter

@@ -4,13 +4,11 @@ import sys
 from pathlib import Path
 
 from transformers import AutoTokenizer
-# tokenizer = AutoTokenizer.from_pretrained("PY007/TinyLlama-1.1B-intermediate-step-240k-503B")
-tokenizer = AutoTokenizer.from_pretrained("PY007/TinyLlama-1.1B-Chat-v0.2")
 async def generate(prompt, model_name, seed=0, temperature=0.5, num_tokens=256):
     # stream stout
-    prompt = f"<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
-    out = tokenizer.encode(prompt)[1:]
-    out_str = ' '.join(map(str, out))
+    tokenizer_name = "tokenizer.bin"
+    if model_name == "tl-chat.bin":
+        tokenizer_name = 'tok_tl-chat.bin'
     process = subprocess.Popen(
         [
             "mojo",
@@ -23,9 +21,9 @@ async def generate(prompt, model_name, seed=0, temperature=0.5, num_tokens=256):
             "-t",
             str(temperature),
             "-id",
-            out_str,
-            "-tk",
-            "../llama2.c/tok_tl-chat.bin"
+            prompt,
+            "-z",
+            Path(tokenizer_name)
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -63,8 +61,8 @@ Source: https://github.com/tairov/llama2.mojo
                 minimum=1, maximum=256, value=256, label="Number of tokens"
             )
             model_name = gr.Dropdown(
-                ["stories15M.bin", "stories42M.bin", "stories110M.bin", "../llama2.c/tl-chat.bin", "../llama2.c/tl.bin"],
-                value="../llama2.c/tl-chat.bin",
+                ["stories15M.bin", "stories42M.bin", "stories110M.bin", "tl-chat.bin"],
+                value="stories15M.bin",
                 label="Model Size",
             )
             with gr.Row():
@@ -76,7 +74,7 @@ Source: https://github.com/tairov/llama2.mojo
     # update maximum number of tokens based on model size
     model_name.change(
         lambda x: gr.update(maximum=1024)
-        if x == "stories110M.bin" or x == "stories42M.bin"
+        if x == "stories110M.bin" or x == "stories42M.bin" or x == "tl-chat.bin"
         else gr.update(maximum=256),
         model_name,
         num_tokens,
