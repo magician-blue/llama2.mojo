@@ -500,7 +500,6 @@ fn config_init(inout config: Config, inout buf: FileBuf) raises:
     config.dim = read_val_int(buf)
     config.hidden_dim = read_val_int(buf)
     config.n_layers = read_val_int(buf)
-    print("n layers: ", config.n_layers)
     config.n_heads = read_val_int(buf)
     config.n_kv_heads = read_val_int(buf)
     config.vocab_size = read_val_int(buf)
@@ -942,7 +941,10 @@ fn main() raises:
     # Read in the tokenizer.bin file
     read_file(tokenizer, tbuf)
     var tok = Tokenizer(config.vocab_size, tbuf)
-    print('Vocab size', tok.vocab_size)
+
+    # print the layers number and vocab size
+    print("n layers: ", config.n_layers)
+    print('vocab size: ', tok.vocab_size)
 
     # Create and initialize the application RunState
     var state = RunState(config)
