@@ -20,7 +20,7 @@ async def generate(prompt, model_name, seed=0, temperature=0.5, num_tokens=256):
             str(num_tokens),
             "-t",
             str(temperature),
-            "-id",
+            "-i",
             prompt,
             "-z",
             Path(tokenizer_name)
