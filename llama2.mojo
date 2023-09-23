@@ -354,7 +354,7 @@ struct Config:
     var vocab_size: Int
     var seq_len: Int
     var head_size: Int
-    var arc: Int # the architecture of the model, noral model is 1, stories model is 0
+    var arc: Int # the ROPE architecture of the model, noral model is 1, stories model is 0
 
     fn __init__(inout self):
         self.dim = 0
