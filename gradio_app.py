@@ -6,6 +6,7 @@ from pathlib import Path
 from transformers import AutoTokenizer
 async def generate(prompt, model_name, seed=0, temperature=0.5, num_tokens=256):
     # stream stout
+    base = ''#'../llama2.c/'
     tokenizer_name = "tokenizer.bin"
     if model_name == "tl-chat.bin":
         tokenizer_name = 'tok_tl-chat.bin'
@@ -13,7 +14,7 @@ async def generate(prompt, model_name, seed=0, temperature=0.5, num_tokens=256):
         [
             "mojo",
             "llama2.mojo",
-            Path(model_name),
+            Path(base + model_name),
             "-s",
             str(seed),
             "-n",
@@ -23,7 +24,7 @@ async def generate(prompt, model_name, seed=0, temperature=0.5, num_tokens=256):
             "-i",
             prompt,
             "-z",
-            Path(tokenizer_name)
+            Path(base + tokenizer_name)
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -55,7 +56,7 @@ Source: https://github.com/tairov/llama2.mojo
                 randomize=True,
             )
             temperature = gr.Slider(
-                minimum=0.0, maximum=2.0, step=0.01, value=0.5, label="Temperature"
+                minimum=0.0, maximum=2.0, step=0.01, value=0.0, label="Temperature"
             )
             num_tokens = gr.Slider(
                 minimum=1, maximum=256, value=256, label="Number of tokens"
